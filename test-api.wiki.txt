@@ -1,0 +1,29 @@
+= Test API =
+
+=== First Group ===
+
+==== Resource one ====
+
+ * POST /resource/one/
+ * parameters:
+   * label
+
+==== Delete Resource one ====
+
+ * DELETE /resource/one/<id>
+
+==== Edit Resource one ====
+
+ * PUT /resource/one/<id>
+ * Parameters:
+   * label
+ * Optional parameters:
+   * date
+
+=== Second Group ===
+
+==== Resource two ====
+
+ * GET /resource/two
+ * Filters:
+   * label: Filter by label
