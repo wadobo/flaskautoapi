@@ -126,10 +126,13 @@ class Element(object):
                 models.append(TypeModel(new_type, self.elType))
 
         if "minOccurs" in element.attrib:
-            self.is_set = True
             self.minOccurs = element.attrib["minOccurs"]
             if self.minOccurs == "unbounded":
+                self.is_set = True
                 self.minOccurs = '"unboinded"'
+            else:
+                if int(self.minOccurs) > 1:
+                    self.is_set = True
 
         if "maxOccurs" in element.attrib:
             self.is_set = True
@@ -154,6 +157,7 @@ class Element(object):
 
             if self.maxOccurs:
                 params.append("max_occurs=" + self.maxOccurs)
+
             if self.elType == "xs:string":
                 ret += "%s = String" % self.name
             elif self.elType == "xs:boolean":
@@ -170,12 +174,81 @@ class Element(object):
                 ret += "%s = DateTime" % self.name
             else:
                 print "TODO: unknown %s primitive type" % self.elType
+            if params and ret:
+                ret += "(" + ", ".join(params) + ")"
 
-        if params and ret:
-            ret += "(" + ", ".join(params) + ")"
+        if self.is_complex_type:
+            if not self.is_set:
+                ret += "%(name)s = %(type_name)s" % dict(name=self.name,
+                    type_name=self.elType)
+                if self.minOccurs:
+                    ret += "(min_occurs=%s)" % self.minOccurs
+            else:
+                ret += "%s = Array" % self.name
+
+                params = [self.elType]
+
+                if self.minOccurs:
+                    params.append("min_occurs=" + self.minOccurs)
+
+                if self.maxOccurs:
+                    params.append("max_occurs=" + self.maxOccurs)
+
+                ret += "(" + ", ".join(params) + ")"
+
 
         return ret
 
+
+class Group(object):
+    '''
+    Represents a group, used for parsing and generating code
+    '''
+
+    # possible values in this attribute
+    values = []
+
+    def __init__(self, element):
+        '''
+        Constructor, does the parsing
+        '''
+        # global
+        global models
+        global rootEl
+        global ns
+
+        ref = element.attrib["ref"].split("tns:")[1]
+        self.values = rootEl.xpath(
+            "d:types/xs:schema/xs:group[@name='%s']//xs:element/@name" % ref,
+            namespaces=ns)
+
+    def to_code(self):
+        '''
+        Generates code!
+        '''
+        return 'Attribute = String(pattern="(%s)")' % '|'.join(self.values)
+
+
+class Attribute(object):
+    '''
+    Represents an attribute, used for parsing and code generation
+    '''
+
+    name = ""
+
+    def __init__(self, element):
+        '''
+        Constructor, does the parsing
+        '''
+        self.name = element.attrib["name"]
+        self.fixed_value = element.attrib["fixed"]
+
+    def to_code(self):
+        '''
+        Generates code!
+        '''
+        return '%(name)s = Mandatory.String(pattern="%(fixed_value)s")' % dict(
+            name=self.name, fixed_value=self.fixed_value)
 
 
 class TypeModel(object):
@@ -217,13 +290,13 @@ class TypeModel(object):
         elif tag == "sequence":
             pass
         elif tag == "choice":
-            new_options["choice"] = True
-        elif tag == "group":
             pass
+        elif tag == "group":
+            self.elements.append(Group(element))
         elif tag == "complexType":
             pass
         elif tag == "attribute":
-            pass
+            self.elements.append(Attribute(element))
         else:
             print tag
 
@@ -268,6 +341,7 @@ class Operation(object):
         '''
         Convert operation to code
         '''
+        # TODO: Operation code generation
         return "operation_code\n"
 
 
