@@ -129,7 +129,7 @@ class Element(object):
             self.minOccurs = element.attrib["minOccurs"]
             if self.minOccurs == "unbounded":
                 self.is_set = True
-                self.minOccurs = '"unboinded"'
+                self.minOccurs = '"unbounded"'
             else:
                 if int(self.minOccurs) > 1:
                     self.is_set = True
@@ -138,7 +138,7 @@ class Element(object):
             self.is_set = True
             self.maxOccurs = element.attrib["maxOccurs"]
             if self.maxOccurs == "unbounded":
-                self.maxOccurs = '"unboinded"'
+                self.maxOccurs = '"unbounded"'
 
     def to_code(self):
         '''
@@ -286,7 +286,11 @@ class TypeModel(object):
         new_options["depth"] += 1
 
         if tag == "element":
-            self.elements.append(Element(self, element))
+            el = Element(self, element)
+            self.elements.append(el)
+
+            if el.is_complex_type and el.elType == "AssignPrivateIpAddressesSetRequestType":
+                self.dependencies.append(el.elType)
         elif tag == "sequence":
             pass
         elif tag == "choice":
@@ -307,7 +311,7 @@ class TypeModel(object):
         '''
         Return the list of depending model names
         '''
-        return []
+        return self.dependencies
 
 
 
