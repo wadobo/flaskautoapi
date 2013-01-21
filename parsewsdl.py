@@ -338,6 +338,8 @@ class Operation(object):
     '''
 
     def __init__(self, element, requestType, responseType):
+        self.element = element
+        self.name = self.element.attrib['name']
         self.requestType = requestType
         self.responseType = responseType
 
@@ -345,8 +347,20 @@ class Operation(object):
         '''
         Convert operation to code
         '''
-        # TODO: Operation code generation
-        return "operation_code\n"
+
+        template = '''
+class {name}Service(ServiceBase):
+    @rpc({request}, _returns={response})
+    def {name}(req):
+
+        resp = {response}()
+        return resp
+'''
+        tmpl = template.format(name=self.name,
+                             request=self.requestType,
+                             response=self.responseType)
+
+        return tmpl
 
 
 def main(filename, ops=True, types=True):
