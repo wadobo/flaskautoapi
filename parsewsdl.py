@@ -349,7 +349,7 @@ class Operation(object):
         return "operation_code\n"
 
 
-def main(filename):
+def main(filename, ops=True, types=True):
     '''
     Main function, parses the input file and generates the output code in stdout
     '''
@@ -395,20 +395,30 @@ def main(filename):
 
     models = toposort(models, get_dependencies=get_deps, is_equal=is_equal, list_objs=list_objs)
 
-    # print models code
-    for model in models:
-        print model.to_code()
+    if types:
+        # print models code
+        for model in models:
+            print model.to_code()
 
-    ## print operations code
-    #for operation in operationObjs:
-        #print operation.to_code()
+    if ops:
+        # print operations code
+        for operation in operationObjs:
+            print operation.to_code()
 
-def help():
-    print "usage:"
-    print "%s <filename>" % sys.argv[0]
-    sys.exit(0)
 
 if __name__ == '__main__':
-    if (len(sys.argv) != 2):
-        help()
-    main(sys.argv[1])
+    import argparse
+
+    parser = argparse.ArgumentParser(description='Parses a wsdl file and generates spyne code.')
+    parser.add_argument('filename', metavar='filename.wsdl', type=str,
+                       help='The wsdl definition filename')
+    parser.add_argument('--operations', '-o', dest='types',
+                        action='store_false',
+                        help='Only generates operations')
+    parser.add_argument('--types', '-t', dest='ops',
+                        action='store_false',
+                        help='Only generates types')
+
+    args = parser.parse_args()
+
+    main(args.filename, args.ops, args.types)
