@@ -47,7 +47,9 @@ def toposort(objs, get_dependencies=lambda objs, i: objs[i],
 
 # 4 functions used to sort models by dependencies and other model related things
 def get_deps(modelList, model):
-    return model.get_deps()
+    depnames = model.get_deps()
+    deps = [i for i in modelList if i.name in depnames]
+    return deps
 
 def is_equal(a, b):
     return str(a) == str(b)
