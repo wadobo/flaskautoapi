@@ -140,6 +140,32 @@ class Element(object):
             if self.maxOccurs == "unbounded":
                 self.maxOccurs = '"unbounded"'
 
+    def elem_type(self):
+        '''
+        Returns the type class
+        '''
+
+        mapping = {
+            'xs:string': 'String',
+            'xs:boolean': 'Boolean',
+            'xs:int': 'Integer',
+            'xs:integer': 'Integer',
+            'xs:long': 'Long',
+            'xs:float': 'Float',
+            'xs:double': 'Double',
+            'xs:dateTime': 'DateTime',
+        }
+
+        ret = ""
+        if not self.is_complex_type:
+            ret = mapping.get(self.elType, '')
+            if not ret:
+                print "TODO: unknown %s primitive type" % self.elType
+        else:
+            ret = self.elType
+
+        return ret
+
     def to_code(self):
         '''
         Generates code!
@@ -158,22 +184,8 @@ class Element(object):
             if self.maxOccurs:
                 params.append("max_occurs=" + self.maxOccurs)
 
-            if self.elType == "xs:string":
-                ret += "%s = String" % self.name
-            elif self.elType == "xs:boolean":
-                ret += "%s = Boolean" % self.name
-            elif self.elType == "xs:int" or self.elType == "xs:integer":
-                ret += "%s = Integer" % self.name
-            elif self.elType == "xs:long":
-                ret += "%s = Long" % self.name
-            elif self.elType == "xs:float":
-                ret += "%s = Float" % self.name
-            elif self.elType == "xs:double":
-                ret += "%s = Double" % self.name
-            elif self.elType == "xs:dateTime":
-                ret += "%s = DateTime" % self.name
-            else:
-                print "TODO: unknown %s primitive type" % self.elType
+            ret += "%s = %s" % (self.name, self.elem_type())
+
             if params and ret:
                 ret += "(" + ", ".join(params) + ")"
 
@@ -348,16 +360,30 @@ class Operation(object):
         Convert operation to code
         '''
 
+        request = [i for i in models if i.name == self.requestType]
+        if not request:
+            return "# %s NOT IMPLEMENTED (because can't find %s)" % (self.name, self.requestType)
+        request = request[0]
+
+        response = [i for i in models if i.name == self.responseType]
+        if not response:
+            return "# %s NOT IMPLEMENTED (because can't find %s)" % (self.name, self.responseType)
+        response = response[0]
+
         template = '''
 class {name}Service(ServiceBase):
-    @rpc({request}, _returns={response})
-    def {name}(req):
+    @srpc({request_types}, _returns={response})
+    def {name}({request_attrs}):
+        req = {request}({request_named_attrs})
 
         resp = {response}()
         return resp
 '''
         tmpl = template.format(name=self.name,
                              request=self.requestType,
+                             request_types=', '.join(i.elem_type() for i in request.elements if isinstance(i, Element)),
+                             request_attrs=', '.join(i.name for i in request.elements if isinstance(i, Element)),
+                             request_named_attrs=', '.join('{0}={0}'.format(i.name) for i in request.elements if isinstance(i, Element)),
                              response=self.responseType)
 
         return tmpl
