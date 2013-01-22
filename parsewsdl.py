@@ -4,6 +4,7 @@ from lxml import etree
 import sys
 
 NAMESPACE = "wadobo.api"
+SERVICENAME = "Wadobo"
 
 def toposort(objs, get_dependencies=lambda objs, i: objs[i],
         is_equal=lambda a,b: a==b,
@@ -377,8 +378,12 @@ class Operation(object):
             return "# %s NOT IMPLEMENTED (because can't find %s)" % (self.name, self.responseType)
         response = response[0]
 
-        template = '''
-class {name}Service(ServiceBase):
+        # generate template
+        request_types= ', '.join(i.elem_type() for i in request.elements if isinstance(i, Element))
+        request_attrs=', '.join(i.name for i in request.elements if isinstance(i, Element))
+
+        if request_types:
+            template = '''
     @srpc({request_types}, _returns={response})
     def {name}({request_attrs}):
         req = {request}({request_named_attrs})
@@ -386,12 +391,23 @@ class {name}Service(ServiceBase):
         resp = {response}()
         return resp
 '''
+        else:
+            template = '''
+    @srpc({request_types}_returns={response})
+    def {name}({request_attrs}):
+        req = {request}({request_named_attrs})
+
+        resp = {response}()
+        return resp
+'''
+
         tmpl = template.format(name=self.name,
-                             request=self.requestType,
-                             request_types=', '.join(i.elem_type() for i in request.elements if isinstance(i, Element)),
-                             request_attrs=', '.join(i.name for i in request.elements if isinstance(i, Element)),
-                             request_named_attrs=', '.join('{0}={0}'.format(i.name) for i in request.elements if isinstance(i, Element)),
-                             response=self.responseType)
+            request=self.requestType,
+            request_types=request_types,
+            request_attrs=request_attrs,
+            request_named_attrs=', '.join('{0}={0}'.format(i.name) for i in request.elements if isinstance(i, Element)),
+            response=self.responseType
+        )
 
         return tmpl
 
@@ -446,12 +462,29 @@ def main(filename, ops=True, types=True):
     models = toposort(indexed_models, get_dependencies=get_deps, is_equal=is_equal, list_objs=list_objs)
 
     if types:
+        print '''
+from spyne.model.complex import ComplexModel
+from spyne.model.primitive import *
+
+'''
+
         # print models code
         for model in models:
             print model.to_code()
 
     if ops:
         # print operations code
+        print '''
+from spyne.decorator import srpc
+from spyne.protocol.xml import XmlDocument
+from spyne.protocol.http import HttpRpc
+from spyne.service import ServiceBase
+from spyne.model.complex import Iterable
+from spyne.model.primitive import *
+from types import * # file containing the types
+
+        '''
+        print "class %sService(ServiceBase):" % SERVICENAME
         for operation in operationObjs:
             print operation.to_code()
 
