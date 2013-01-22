@@ -26,12 +26,18 @@ def toposort(objs, get_dependencies=lambda objs, i: objs[i],
     '''
 
     ret = []
+    def contains(obj_list, el):
+        for obj in obj_list:
+            if is_equal(el, obj):
+                return True
+        return False
+
     def has_unmet_deps(i):
         '''
         Returns True if it has unmet dependencies
         '''
         for dep in get_dependencies(objs, i):
-            if dep not in ret:
+            if not contains(ret, dep):
                 return True
         return False
 
@@ -47,23 +53,22 @@ def toposort(objs, get_dependencies=lambda objs, i: objs[i],
 
 # 4 functions used to sort models by dependencies and other model related things
 def get_deps(modelList, model):
-    depnames = model.get_deps()
-    deps = [i for i in modelList if i.name in depnames]
+    deps = []
+    for dep in model.get_deps():
+        deps.append(modelList[dep])
     return deps
 
 def is_equal(a, b):
-    return str(a) == str(b)
+    return a == b
 
 def list_objs(modelList):
-    return modelList
+    return modelList.values()
 
 def contains(modelList, a):
     for i in modelList:
-        if is_equal(i, a):
+        if is_equal(str(i), a):
             return True
     return False
-
-
 
 def get_simplified_tag(element):
     '''
@@ -113,12 +118,12 @@ class Element(object):
 
         if self.elType.startswith("tns:"):
             self.elType = self.elType.split(':')[1]
-            self.parent.dependencies.append(self.elType)
 
             if self.elType == "EmptyElementType":
                 self.is_empty_type = True
                 return
 
+            self.parent.dependencies.append(self.elType)
             self.is_complex_type = True
 
             if not contains(models, self.elType):
@@ -303,7 +308,7 @@ class TypeModel(object):
             el = Element(self, element)
             self.elements.append(el)
 
-            if el.is_complex_type and el.elType == "AssignPrivateIpAddressesSetRequestType":
+            if el.is_complex_type and not el.is_empty_type:
                 self.dependencies.append(el.elType)
         elif tag == "sequence":
             pass
@@ -435,7 +440,10 @@ def main(filename, ops=True, types=True):
 
         operationObjs.append(Operation(operation, req_name, resp_name))
 
-    models = toposort(models, get_dependencies=get_deps, is_equal=is_equal, list_objs=list_objs)
+    indexed_models = dict()
+    for model in models:
+        indexed_models[str(model)] = model
+    models = toposort(indexed_models, get_dependencies=get_deps, is_equal=is_equal, list_objs=list_objs)
 
     if types:
         # print models code
