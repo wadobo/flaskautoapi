@@ -3,8 +3,14 @@
 from lxml import etree
 import sys
 
+# Change namespace and service name to suit your needs
 NAMESPACE = "wadobo.api"
 SERVICENAME = "Wadobo"
+
+
+# reserved keywords in python, which cannot be used as variable names
+RESERVED_KEYWORDS=["return", "for", "lambda", "def", "if", "else", "while",
+"in", "not", "class", "global", "print", "yield", "is", "from", "import"]
 
 def toposort(objs, get_dependencies=lambda objs, i: objs[i],
         is_equal=lambda a,b: a==b,
@@ -99,6 +105,7 @@ class Element(object):
     is_empty_type = False
     minOccurs = None
     maxOccurs = None
+    is_reserved_name = False
 
     name = ""
     elType = ""
@@ -116,6 +123,11 @@ class Element(object):
         self.elType = element.attrib["type"]
         elName = get_simplified_tag(element)
         self.name = element.attrib["name"]
+
+        # a name cannot be a reserved word
+        if self.name in RESERVED_KEYWORDS:
+            self.is_reserved_name = True
+            self.name += "_"
 
         if self.elType.startswith("tns:"):
             self.elType = self.elType.split(':')[1]
@@ -174,16 +186,29 @@ class Element(object):
 
         return ret
 
-    def to_code(self):
+
+    def get_real_name(self):
+        '''
+        Returns the actual real name, even if it's a reserved word, without the
+        postfix
+        '''
+        if not self.is_reserved_name:
+            return self.name
+        else:
+            return self.name[:-1]
+
+    def to_code(self, mode="normal"):
         '''
         Generates code!
         '''
         # This case is handled in TypeModel specifically
         if self.is_empty_type:
-            return ""
+            return "# %s = String # TODO empty type" % self.name
 
-        ret = ""
         params = []
+
+        name = self.name
+        type_str = ""
 
         if not self.is_complex_type:
             if self.minOccurs:
@@ -192,19 +217,18 @@ class Element(object):
             if self.maxOccurs:
                 params.append("max_occurs=" + self.maxOccurs)
 
-            ret += "%s = %s" % (self.name, self.elem_type())
+            type_str = self.elem_type()
 
-            if params and ret:
-                ret += "(" + ", ".join(params) + ")"
+            if params and type_str:
+                type_str += "(" + ", ".join(params) + ")"
 
         if self.is_complex_type:
             if not self.is_set:
-                ret += "%(name)s = %(type_name)s" % dict(name=self.name,
-                    type_name=self.elType)
+                type_str = self.elType
                 if self.minOccurs:
-                    ret += "(min_occurs=%s)" % self.minOccurs
+                    type_str += "(min_occurs=%s)" % self.minOccurs
             else:
-                ret += "%s = Array" % self.name
+                type_str = "Array"
 
                 params = [self.elType]
 
@@ -214,10 +238,14 @@ class Element(object):
                 if self.maxOccurs:
                     params.append("max_occurs=" + self.maxOccurs)
 
-                ret += "(" + ", ".join(params) + ")"
+                type_str += "(" + ", ".join(params) + ")"
 
-
-        return ret
+        if mode == "normal":
+            return name + " = " + type_str
+        elif mode == "odict":
+            return "('%(name)s', %(type_str)s)," % dict(
+                name=name, type_str=type_str
+            )
 
 
 class Group(object):
@@ -333,7 +361,11 @@ class TypeModel(object):
         '''
         return self.dependencies
 
-
+    def has_reserved_names(self):
+        for el in self.elements:
+            if isinstance(el, Element) and el.is_reserved_name:
+                return True
+        return False
 
     def to_code(self):
         '''
@@ -342,7 +374,12 @@ class TypeModel(object):
         ret = "class %(name)s(ComplexModel):\n    __namespace__ = '%(ns)s'\n\n    " %\
             dict(name=self.name, ns=NAMESPACE)
 
-        ret += "\n    ".join([e.to_code() for e in self.elements]) + "\n"
+        if not self.has_reserved_names():
+            ret += "\n    ".join([e.to_code() for e in self.elements]) + "\n"
+        else:
+            ret += "_type_info = odict([\n        "
+            ret += "\n        ".join([e.to_code(mode="odict") for e in self.elements]) + "\n"
+            ret += "    ]"
 
         return ret
 
@@ -380,30 +417,32 @@ class Operation(object):
 
         # generate template
         request_types= ', '.join(i.elem_type() for i in request.elements if isinstance(i, Element))
-        request_attrs=', '.join(i.name for i in request.elements if isinstance(i, Element))
 
+        request_attrs_list = [i.name for i in request.elements if isinstance(i, Element)]
+        request_attrs=', '.join(request_attrs_list)
+
+        renamed_attrs_list = ["'%(name)s_': '%(name)s'" % dict(name=i.get_real_name()) for i in request.elements if isinstance(i, Element) and i.is_reserved_name]
+
+        srpc_params = []
         if request_types:
-            template = '''
-    @srpc({request_types}, _returns={response})
+            srpc_params.append(request_types)
+
+        srpc_params.append("_returns=" + self.responseType)
+
+        if renamed_attrs_list:
+            srpc_params.append("\n        _in_variable_names={%s}" % ', '.join(renamed_attrs_list))
+
+        template = '''
+    @srpc(srpc_params)
     def {name}({request_attrs}):
         req = {request}({request_named_attrs})
 
         resp = {response}()
         return resp
 '''
-        else:
-            template = '''
-    @srpc({request_types}_returns={response})
-    def {name}({request_attrs}):
-        req = {request}({request_named_attrs})
-
-        resp = {response}()
-        return resp
-'''
-
         tmpl = template.format(name=self.name,
             request=self.requestType,
-            request_types=request_types,
+            srpc_params=', '.join(srpc_params),
             request_attrs=request_attrs,
             request_named_attrs=', '.join('{0}={0}'.format(i.name) for i in request.elements if isinstance(i, Element)),
             response=self.responseType
@@ -465,6 +504,7 @@ def main(filename, ops=True, types=True):
         print '''
 from spyne.model.complex import ComplexModel
 from spyne.model.primitive import *
+from spyne.util.odict import odict
 
 '''
 
