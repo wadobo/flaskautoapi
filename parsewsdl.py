@@ -10,7 +10,8 @@ SERVICENAME = "Wadobo"
 
 # reserved keywords in python, which cannot be used as variable names
 RESERVED_KEYWORDS=["return", "for", "lambda", "def", "if", "else", "while",
-"in", "not", "class", "global", "print", "yield", "is", "from", "import"]
+    "in", "not", "class", "global", "print", "yield", "is", "from", "import",
+    "format", "type"]
 
 def toposort(objs, get_dependencies=lambda objs, i: objs[i],
         is_equal=lambda a,b: a==b,
@@ -197,7 +198,7 @@ class Element(object):
         else:
             return self.name[:-1]
 
-    def to_code(self, mode="normal"):
+    def to_code(self):
         '''
         Generates code!
         '''
@@ -240,12 +241,11 @@ class Element(object):
 
                 type_str += "(" + ", ".join(params) + ")"
 
-        if mode == "normal":
+        if not self.is_reserved_name:
             return name + " = " + type_str
-        elif mode == "odict":
-            return "('%(name)s', %(type_str)s)," % dict(
-                name=name, type_str=type_str
-            )
+        else:
+            return "%(class_name)s._type_info['%(name)s'] = %(type_str)s" %\
+                dict(class_name=self.parent.name, name=self.name[:-1], type_str=type_str)
 
 
 class Group(object):
@@ -255,6 +255,7 @@ class Group(object):
 
     # possible values in this attribute
     values = []
+    is_reserved_name = False
 
     def __init__(self, element):
         '''
@@ -283,6 +284,7 @@ class Attribute(object):
     '''
 
     name = ""
+    is_reserved_name = False
 
     def __init__(self, element):
         '''
@@ -295,7 +297,7 @@ class Attribute(object):
         '''
         Generates code!
         '''
-        return '%(name)s = Mandatory.String(pattern="%(fixed_value)s")' % dict(
+        return '%(name)s = String(pattern="%(fixed_value)s", min_occurs=1, nillable=False)' % dict(
             name=self.name, fixed_value=self.fixed_value)
 
 
@@ -361,12 +363,6 @@ class TypeModel(object):
         '''
         return self.dependencies
 
-    def has_reserved_names(self):
-        for el in self.elements:
-            if isinstance(el, Element) and el.is_reserved_name:
-                return True
-        return False
-
     def to_code(self):
         '''
         Generates code!
@@ -374,12 +370,14 @@ class TypeModel(object):
         ret = "class %(name)s(ComplexModel):\n    __namespace__ = '%(ns)s'\n\n    " %\
             dict(name=self.name, ns=NAMESPACE)
 
-        if not self.has_reserved_names():
-            ret += "\n    ".join([e.to_code() for e in self.elements]) + "\n"
-        else:
-            ret += "_type_info = odict([\n        "
-            ret += "\n        ".join([e.to_code(mode="odict") for e in self.elements]) + "\n"
-            ret += "    ]"
+        ret += "\n    ".join([e.to_code() for e in self.elements if not e.is_reserved_name])
+
+        reserved_list = [e.to_code() for e in self.elements if e.is_reserved_name]
+
+        if reserved_list:
+            ret += '\n\n' + "\n".join(reserved_list)
+
+        ret += "\n\n"
 
         return ret
 
@@ -433,7 +431,7 @@ class Operation(object):
             srpc_params.append("\n        _in_variable_names={%s}" % ', '.join(renamed_attrs_list))
 
         template = '''
-    @srpc(srpc_params)
+    @srpc({srpc_params})
     def {name}({request_attrs}):
         req = {request}({request_named_attrs})
 
@@ -451,7 +449,7 @@ class Operation(object):
         return tmpl
 
 
-def main(filename, ops=True, types=True):
+def main(filename, show_operations=True, show_models=True):
     '''
     Main function, parses the input file and generates the output code in stdout
     '''
@@ -500,9 +498,9 @@ def main(filename, ops=True, types=True):
         indexed_models[str(model)] = model
     models = toposort(indexed_models, get_dependencies=get_deps, is_equal=is_equal, list_objs=list_objs)
 
-    if types:
+    if show_models:
         print '''
-from spyne.model.complex import ComplexModel
+from spyne.model.complex import ComplexModel, Array
 from spyne.model.primitive import *
 from spyne.util.odict import odict
 
@@ -512,7 +510,7 @@ from spyne.util.odict import odict
         for model in models:
             print model.to_code()
 
-    if ops:
+    if show_operations:
         # print operations code
         print '''
 from spyne.decorator import srpc
@@ -521,9 +519,10 @@ from spyne.protocol.http import HttpRpc
 from spyne.service import ServiceBase
 from spyne.model.complex import Iterable
 from spyne.model.primitive import *
-from types import * # file containing the types
+from models import * # file containing the models
 
-        '''
+'''
+
         print "class %sService(ServiceBase):" % SERVICENAME
         for operation in operationObjs:
             print operation.to_code()
@@ -535,13 +534,13 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Parses a wsdl file and generates spyne code.')
     parser.add_argument('filename', metavar='filename.wsdl', type=str,
                        help='The wsdl definition filename')
-    parser.add_argument('--operations', '-o', dest='types',
+    parser.add_argument('--operations', '-o', dest='show_models',
                         action='store_false',
                         help='Only generates operations')
-    parser.add_argument('--types', '-t', dest='ops',
+    parser.add_argument('--models', '-m', dest='show_operations',
                         action='store_false',
-                        help='Only generates types')
+                        help='Only generates models')
 
     args = parser.parse_args()
 
-    main(args.filename, args.ops, args.types)
+    main(args.filename, args.show_operations, args.show_models)
