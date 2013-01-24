@@ -2,6 +2,7 @@
 
 from lxml import etree
 import sys
+import re
 
 # Change namespace and service name to suit your needs
 NAMESPACE = "wadobo.api"
@@ -224,22 +225,15 @@ class Element(object):
                 type_str += "(" + ", ".join(params) + ")"
 
         if self.is_complex_type:
-            if not self.is_set:
-                type_str = self.elType
-                if self.minOccurs:
-                    type_str += "(min_occurs=%s)" % self.minOccurs
-            else:
-                type_str = "Array"
+            params = []
 
-                params = [self.elType]
+            if self.minOccurs:
+                params.append("min_occurs=" + self.minOccurs)
 
-                if self.minOccurs:
-                    params.append("min_occurs=" + self.minOccurs)
+            if self.maxOccurs:
+                params.append("max_occurs=" + self.maxOccurs)
 
-                if self.maxOccurs:
-                    params.append("max_occurs=" + self.maxOccurs)
-
-                type_str += "(" + ", ".join(params) + ")"
+            type_str = self.elType + "(" + ", ".join(params) + ")"
 
         if not self.is_reserved_name:
             return name + " = " + type_str
@@ -367,7 +361,7 @@ class TypeModel(object):
         '''
         Generates code!
         '''
-        ret = "class %(name)s(ComplexModel):\n    __namespace__ = '%(ns)s'\n\n    " %\
+        ret = "class %(name)s(ComplexModel):\n    __namespace__ = MODELS_NAMESPACE\n\n    " %\
             dict(name=self.name, ns=NAMESPACE)
 
         ret += "\n    ".join([e.to_code() for e in self.elements if not e.is_reserved_name])
@@ -449,7 +443,7 @@ class Operation(object):
         return tmpl
 
 
-def main(filename, show_operations=True, show_models=True):
+def main(filename, show_operations=True, show_models=True, filter_regexp=""):
     '''
     Main function, parses the input file and generates the output code in stdout
     '''
@@ -498,17 +492,25 @@ def main(filename, show_operations=True, show_models=True):
         indexed_models[str(model)] = model
     models = toposort(indexed_models, get_dependencies=get_deps, is_equal=is_equal, list_objs=list_objs)
 
+    rx = None
+    if filter_regexp:
+        print "filter_regexp = ", filter_regexp
+        rx = re.compile(filter_regexp)
+
     if show_models:
         print '''
 from spyne.model.complex import ComplexModel, Array
 from spyne.model.primitive import *
 from spyne.util.odict import odict
 
-'''
+MODELS_NAMESPACE = '%s'
+
+''' % NAMESPACE
 
         # print models code
         for model in models:
-            print model.to_code()
+            if not rx or rx.match(model.name):
+                print model.to_code()
 
     if show_operations:
         # print operations code
@@ -525,7 +527,8 @@ from models import * # file containing the models
 
         print "class %sService(ServiceBase):" % SERVICENAME
         for operation in operationObjs:
-            print operation.to_code()
+            if not rx or rx.match(operation.name):
+                print operation.to_code()
 
 
 if __name__ == '__main__':
@@ -540,7 +543,10 @@ if __name__ == '__main__':
     parser.add_argument('--models', '-m', dest='show_operations',
                         action='store_false',
                         help='Only generates models')
+    parser.add_argument('--filter', '-f', dest='filter_regexp',
+                        action='store', default="",
+                        help='filter names by reg exp')
 
     args = parser.parse_args()
 
-    main(args.filename, args.show_operations, args.show_models)
+    main(args.filename, args.show_operations, args.show_models, args.filter_regexp)
